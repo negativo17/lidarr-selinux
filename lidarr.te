@@ -1,0 +1,277 @@
+policy_module(lidarr, 1.0.0)
+
+require {
+    type bin_t;
+    type cgroup_t;
+    type configfs_t;
+    type tmp_t;
+}
+
+type lidarr_t;
+type lidarr_exec_t;
+init_daemon_domain(lidarr_t, lidarr_exec_t)
+can_exec(lidarr_t, lidarr_exec_t)
+
+type lidarr_initrc_exec_t;
+init_script_file(lidarr_initrc_exec_t)
+
+# .NET sockets, etc.
+allow lidarr_t tmp_t:dir { add_name remove_name write };
+allow lidarr_t tmp_t:file { create getattr open read unlink write };
+allow lidarr_t tmp_t:fifo_file { create open read unlink };
+allow lidarr_t tmp_t:sock_file create;
+
+type lidarr_var_lib_t;
+files_type(lidarr_var_lib_t)
+files_search_var_lib(lidarr_t)
+manage_dirs_pattern(lidarr_t, lidarr_var_lib_t, lidarr_var_lib_t)
+manage_files_pattern(lidarr_t, lidarr_var_lib_t, lidarr_var_lib_t)
+mmap_read_files_pattern(lidarr_t, lidarr_var_lib_t, lidarr_var_lib_t)
+# manage_lnk_files_pattern(lidarr_t, lidarr_var_lib_t, lidarr_var_lib_t)
+files_var_lib_filetrans(lidarr_t, lidarr_var_lib_t, { dir file })
+
+type lidarr_tmpfs_t;
+files_tmpfs_file(lidarr_tmpfs_t)
+manage_dirs_pattern(lidarr_t, lidarr_tmpfs_t, lidarr_tmpfs_t)
+manage_files_pattern(lidarr_t, lidarr_tmpfs_t, lidarr_tmpfs_t)
+mmap_read_files_pattern(lidarr_t, lidarr_tmpfs_t, lidarr_tmpfs_t)
+# manage_lnk_files_pattern(lidarr_t, lidarr_tmpfs_t, lidarr_tmpfs_t)
+fs_tmpfs_filetrans(lidarr_t, lidarr_tmpfs_t, { dir file })
+
+# Allow access to .NET runtime (LTTng - /dev/shm/lttng-ust-wait*)
+fs_rw_tmpfs_files(lidarr_t)
+
+type lidarr_port_t;
+corenet_port(lidarr_port_t)
+
+allow lidarr_t lidarr_port_t:tcp_socket { name_bind };
+
+sysnet_dns_name_resolve(lidarr_t)
+
+allow lidarr_t self:netlink_route_socket r_netlink_socket_perms;
+allow lidarr_t self:process { execmem getsession };
+allow lidarr_t self:tcp_socket create_stream_socket_perms;
+allow lidarr_t self:unix_dgram_socket { create_socket_perms sendto };
+
+# Allow lidarr to access all interfaces and nodes (IP Addresses)
+corenet_tcp_sendrecv_all_if(lidarr_t)
+corenet_udp_sendrecv_all_if(lidarr_t)
+corenet_tcp_sendrecv_all_nodes(lidarr_t)
+corenet_udp_sendrecv_all_nodes(lidarr_t)
+
+# Allow access to http/https port
+corenet_tcp_connect_http_port(lidarr_t)
+
+allow lidarr_t self:process { signal_perms setsched execmem };
+fs_rw_anon_inodefs_files(lidarr_t)
+fs_getattr_all_fs(lidarr_t)
+init_read_state(lidarr_t)
+
+# Allow reading system locale
+miscfiles_read_localization(lidarr_t)
+
+# Allow reading random devices
+dev_read_rand(lidarr_t)
+dev_read_urand(lidarr_t)
+
+# Allow reading system state
+kernel_read_system_state(lidarr_t)
+kernel_read_network_state(lidarr_t)
+kernel_read_fs_sysctls(lidarr_t)
+dev_read_sysfs(lidarr_t)
+allow lidarr_t cgroup_t:file { getattr open read };
+allow lidarr_t configfs_t:dir getattr;
+# uname
+allow lidarr_t bin_t:file { execute execute_no_trans };
+
+# Allow reading system network configuration
+sysnet_read_config(lidarr_t)
+
+# Allow lidarr to use syslog/journald if configured to do so.
+logging_send_syslog_msg(lidarr_t)
+
+# Allow lidarr to use nsswitch
+auth_use_nsswitch(lidarr_t)
+
+# Allow lidarr to list all mountpoints
+# Silences complaints about autofs mountpoints
+files_list_all_mountpoints(lidarr_t)
+
+# It attempts to list the contents of /proc/<pid> for unrelated processes.
+# If access is denied it will not start. I'm not sure why it does this, but in
+# the meantime lidarr_t needs the ability to read the state of other domains.
+domain_read_all_domains_state(lidarr_t)
+
+## Optional policies
+
+# Optional policy: Allow read/write of files labeled plex_content_rw_t without domain transition.
+
+optional_policy(`
+	require {
+		type plex_t;
+		type plex_port_t;
+		type plex_content_rw_t;
+		}
+
+	# Allow lidarr to connect to plex port
+	gen_tunable(lidarr_connect_plex, false)
+
+	# Allow lidarr to manage plex_*_content_t files
+	gen_tunable(lidarr_manage_plex_content, false)
+
+	tunable_policy(`lidarr_connect_plex',`
+		allow lidarr_t plex_port_t:tcp_socket { name_bind name_connect };
+	')
+
+	tunable_policy(`lidarr_manage_plex_content',`
+		allow lidarr_t plex_content_rw_t:file { read write create getattr setattr lock unlink link rename relabelto };
+		allow lidarr_t plex_content_rw_t:dir { add_name remove_name reparent search rmdir open getattr setattr };
+	')
+')
+
+# Use mediaserver framework policy if available
+# Individual permissions used as conditionals cannot use attributes.
+optional_policy(`
+	require {
+		type mediasrv_t;
+		type mediasrv_content_ro_t;
+		type mediasrv_content_rw_t;
+		} #end require
+
+	# Allow lidarr to read public mediasrv files by default.
+	allow lidarr_t { mediasrv_content_ro_t mediasrv_content_rw_t }:dir { getattr search open read lock ioctl };
+	allow lidarr_t { mediasrv_content_ro_t mediasrv_content_rw_t }:file { open getattr read ioctl lock };
+	allow lidarr_t { mediasrv_content_ro_t mediasrv_content_rw_t }:lnk_file { getattr read };
+
+	# Allow lidarr to manage mediasrv_content_rw_t labeled files and directories.
+	# By default, lidarr can only read mediasrv_content_rw_t file and directories.
+	gen_tunable(lidarr_mediasrv_write, false)
+
+	tunable_policy(`lidarr_mediasrv_write',`
+		allow lidarr_t mediasrv_content_rw_t:dir { create open getattr setattr read write link unlink rename search add_name remove_name reparent rmdir lock ioctl };
+		allow lidarr_t mediasrv_content_rw_t:file { create open getattr setattr read write append rename link unlink ioctl lock };
+		allow lidarr_t mediasrv_content_rw_t:lnk_file { create getattr setattr read write append rename link unlink ioctl lock };
+	')
+')
+
+# Optional Policy: Use Jackett if available
+optional_policy(`
+	require {
+		type jackett_t;
+		type jackett_port_t;
+		}
+
+	# Allow lidarr to connect to jackett port
+	gen_tunable(lidarr_connect_jackett, false)
+
+	tunable_policy(`lidarr_connect_jackett',`
+		allow lidarr_t jackett_port_t:tcp_socket { name_bind name_connect };
+	')
+')
+
+# Optional Policy: Use sabnzbd if available
+optional_policy(`
+	require {
+		type sabnzbd_t;
+		type sabnzbd_port_t;
+		type sabnzbd_content_rw_t;
+		}
+
+	# Allow lidarr to connect to sabnzbd port and manage downloaded files.
+	gen_tunable(lidarr_connect_sabnzbd, false)
+
+	tunable_policy(`lidarr_connect_sabnzbd',`
+		allow lidarr_t sabnzbd_port_t:tcp_socket { name_bind name_connect };
+		allow lidarr_t sabnzbd_content_rw_t:dir { create open getattr setattr read write link unlink rename search add_name remove_name reparent rmdir lock ioctl };
+		allow lidarr_t sabnzbd_content_rw_t:file { create open getattr setattr read write append rename link unlink ioctl lock };
+		allow lidarr_t sabnzbd_content_rw_t:lnk_file { create getattr setattr read write append rename link unlink ioctl lock };
+	')
+')
+
+# Optional Policy: Use transmission if available
+optional_policy(`
+	require {
+		type transmission_t;
+		type transmission_port_t;
+		type transmission_content_rw_t;
+		}
+
+	# Allow lidarr to connect to transmission-daemon port and manage downloaded files.
+	gen_tunable(lidarr_connect_transmission, false)
+
+	tunable_policy(`lidarr_connect_transmission',`
+		allow lidarr_t transmission_port_t:tcp_socket { name_bind name_connect };
+		allow lidarr_t transmission_content_rw_t:dir { create open getattr setattr read write link unlink rename search add_name remove_name reparent rmdir lock ioctl };
+		allow lidarr_t transmission_content_rw_t:file { create open getattr setattr read write append rename link unlink ioctl lock };
+		allow lidarr_t transmission_content_rw_t:lnk_file { create getattr setattr read write append rename link unlink ioctl lock };
+	')
+')
+
+# Tunables
+
+# Allows lidarr to read any file or directory on the system.
+gen_tunable(lidarr_access_all_ro, false)
+
+# Allows lidarr to manage any file or directory on the system.
+gen_tunable(lidarr_access_all_rw, false)
+
+# Allow lidarr to manage public_content_rw_t labeled files and directories.
+# By default, lidarr can only read public_content_rw_t file and directories.
+gen_tunable(lidarr_anon_write, false)
+
+# Allows lidarr to list all directories. This enables the directory browser in
+# the web ui to browse the filesystem.
+#
+# While this is disabled, directories cannot be browsed and paths must be typed
+# in when adding libraries to lidarr.
+#
+# Attempting to use the directory browser ui with this disabled will
+# generate a lot of AVC denials.
+gen_tunable(lidarr_list_all_dirs, false)
+
+# Allows lidarr to manage files in users home directories.
+gen_tunable(lidarr_access_home_dirs_rw, false)
+
+# Allows lidarr to read systemwide cert store in /etc/pki.
+gen_tunable(lidarr_sys_cert_ro, false)
+
+# Allow lidarr to connect to smtp port for sending email notifications
+gen_tunable(lidarr_send_email, false)
+
+# Tunable policies
+
+tunable_policy(`lidarr_access_all_ro',`
+        fs_read_noxattr_fs_files(lidarr_t)
+        files_list_non_auth_dirs(lidarr_t)
+        files_read_non_auth_symlinks(lidarr_t)
+        files_read_non_auth_files(lidarr_t)
+')
+
+tunable_policy(`lidarr_access_all_rw',`
+        fs_read_noxattr_fs_files(lidarr_t)
+        files_manage_non_auth_files(lidarr_t)
+')
+
+tunable_policy(`lidarr_anon_write',`
+        miscfiles_manage_public_files(lidarr_t)
+')
+
+tunable_policy(`lidarr_list_all_dirs',`
+        files_list_non_auth_dirs(lidarr_t)
+        files_read_non_auth_symlinks(lidarr_t)
+        files_dontaudit_getattr_all_files(lidarr_t)
+')
+
+tunable_policy(`lidarr_access_home_dirs_rw',`
+        userdom_manage_user_home_content_dirs(lidarr_t)
+        userdom_manage_user_home_content_files(lidarr_t)
+        userdom_manage_user_home_content_symlinks(lidarr_t)
+')
+
+tunable_policy(`lidarr_sys_cert_ro',`
+	miscfiles_read_generic_certs(lidarr_t)
+')
+
+tunable_policy(`lidarr_send_email',`
+	corenet_tcp_connect_smtp_port(lidarr_t)
+')

@@ -1,0 +1,39 @@
+## <summary>Lidarr daemon.</summary>
+
+########################################
+## <summary>
+##      Execute lidarr service in the lidarr domain.
+## </summary>
+## <param name="domain">
+## <summary>
+##      Domain allowed to transition.
+## </summary>
+## </param>
+#
+interface(`lidarr_domtrans',`
+        gen_require(`
+                type lidarr_t, lidarr_exec_t;
+        ')
+
+        corecmd_search_bin($1)
+        domain_auto_trans($1, lidarr_exec_t, lidarr_t)
+')
+
+######################################
+## <summary>
+##      Execute lidarr in the caller domain.
+## </summary>
+## <param name="domain">
+##      <summary>
+##      Domain allowed access.
+##      </summary>
+## </param>
+#
+interface(`lidarr_exec',`
+        gen_require(`
+                type lidarr_exec_t;
+        ')
+
+        corecmd_search_bin($1)
+        can_exec($1, lidarr_exec_t)
+')

@@ -1,0 +1,4 @@
+/usr/lib/lidarr/Lidarr                      -- gen_context(system_u:object_r:lidarr_exec_t,s0)
+/usr/lib/lidarr/Lidarr.Update/Lidarr.Update -- gen_context(system_u:object_r:lidarr_exec_t,s0)
+/usr/lib/lidarr/fpcalc                      -- gen_context(system_u:object_r:lidarr_exec_t,s0)
+/var/lib/lidarr(/.*)?                          gen_context(system_u:object_r:lidarr_var_lib_t,s0)
